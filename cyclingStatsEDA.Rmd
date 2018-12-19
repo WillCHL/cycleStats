@@ -1,0 +1,170 @@
+---
+title: "Cycle Stats EDA"
+author: "Will Hore-Lacy"
+date: "04/12/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(ggplot2)
+library(leaflet)
+library(sf)
+library(knitr)
+library(readxl)
+```
+
+## VicRoads Bicycle Counters
+
+```{r, fig.width=10, fig.height=7}
+
+bikeSites <- as.data.table(read_xlsx("./data/VicRoads_Bike_Site_Number_Listing.xlsx"))
+
+bikeSites <- bikeSites[!is.na(LAT)]
+bikeSites[,7:13:=NULL]
+setnames(bikeSites,"LOC DESC","LOC_DESC")
+
+leaflet(bikeSites) %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addCircleMarkers(lng=~LONG, lat=~LAT, radius=4, label=~paste0(SITE_XN_ROUTE,": ",LOC_DESC)) %>%
+    addCircleMarkers(data=bikeSites[SITE_XN_ROUTE==6415], lng=~LONG, lat=~LAT,
+                     label=~paste0(SITE_XN_ROUTE,": ",LOC_DESC), 
+                     radius=5, color="red", opacity=.9)
+
+
+
+```
+
+Try examining 6415 site on the Main Yarra Trail: `r bikeSites[SITE_XN_ROUTE==6415, LOC_DESC]`
+
+```{r site59485}
+MYTid <- 6415
+# MYTsiteId <- bikeSites[LOC_LEG==59485, SITE_XN_ROUTE] # This is the id used in the file names
+
+```
+
+```{r unzip, eval=TRUE}
+
+MYT <- data.table()
+
+for (zipFile in list.files(file.path("./data","Bicycle_Volume_Speed_2018"), pattern=".zip$", full.names = T)) {
+    
+    # get list of csv files in the zip file
+    csvFiles <- as.data.table(unzip(zipFile,list=T))
+    
+    # if id is found in file names, extract just that file to working dir
+    if(sum(grepl(MYTid,csvFiles$Name))>0) {
+        
+        csvFiles[grepl(MYTid,Name),Name]
+        MYT <- rbind(MYT,
+                     as.data.table(
+                         read.table(
+                             unzip(zipFile, files=csvFiles[grepl(MYTid,Name),Name]), 
+                             header=T, sep=",")))
+        
+    }
+    
+}
+
+# MYT[,AMPM:= ]
+
+ggplot(MYT, aes(x=SPEED)) +
+    stat_density(geom="line") +
+    facet_grid(DIRECTION ~.) +
+    labs(x="Speed (km/h)")
+
+```
+
+```{r}
+Sys.setenv(TZ='GMT')
+
+convTime <- function(x) {
+
+    require(chron)
+    x1 <- as.character(x)
+    return(chron(times=x1))
+    
+}
+
+MYT[,TIME2:=convTime(TIME)]
+
+ggplot(MYT, aes(x=TIME2)) +
+    stat_density(geom="line") +
+    facet_grid(DIRECTION ~.) +
+    scale_x_chron(format="%H:%M") +
+    labs(x="Time of day")
+
+
+
+```
+
+```{r}
+# create one hour time bins and find max density
+
+# Unsure if this is the correct aggregation
+MYThour <- MYT[,.(count=length(DATA_TYPE)/length(unique(MYT$DATE))), by=.(hours(TIME2),DIRECTION)]
+# length(unique(MYT$DATE))
+
+MYThour[,maximum:=0]
+MYThour[count==max(MYThour[DIRECTION=="E",count]),maximum:=1]
+MYThour[count==max(MYThour[DIRECTION=="W",count]),maximum:=1]
+
+ggplot(MYThour, aes(x=hours, y=count, fill=as.factor(maximum))) +
+    geom_bar(stat="identity") +
+    facet_grid(DIRECTION ~.) +
+    labs(x="Time of day")
+
+
+# Try another
+MYT[,time_hr:=hours(TIME2)]
+MYT[,DATE:=as.Date(as.character(DATE), format="%d/%m/%Y")]
+
+MYTcast1 <- dcast(MYT, time_hr + DATE ~., fun.aggregate = length)
+# MYTcast1 <- dcast(MYTcast1, time_hr ~., fun.aggregate = mean, value.var = ".")
+
+
+```
+
+
+## MCC Pedestrian Counters
+
+```{r}
+
+pedSites <- fread("./data/Pedestrian_sensor_locations.csv")
+
+# pedSites <- st_as_sf(pedSites,coords = c("Longitude", "Latitude"))
+
+
+leaflet(pedSites) %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addCircleMarkers(lng=~Longitude, lat=~Latitude, radius=4)
+
+```
+
+## Pedestrian Volume Data
+
+```{r}
+
+pedDT <- fread("./data/Pedestrian_volume__updated_monthly_.csv")
+
+head(pedDT)
+
+summary(pedDT)
+
+```
+
+Look at the "Southbank" sensor. Aggregate to days of the week and hours.
+
+```{r}
+
+southbank <- pedDT[Sensor_Name=="Southbank"]
+
+southbank2 <- dcast(southbank, Day + Time ~ "Hourly_Counts", value.var = "Hourly_Counts", fun.aggregate = mean)
+names(southbank2)[3] <- "Hourly_Counts"
+southbank2[,Day:=factor(Day,levels = c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"))]
+
+ggplot(southbank2, aes(x=Time,y=Hourly_Counts,colour=Day)) +
+    geom_line()
+
+```
