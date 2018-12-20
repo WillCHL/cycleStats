@@ -99,6 +99,8 @@ ggplot(MYT, aes(x=TIME2)) +
 
 ```
 
+First graph data created with a DT group by, may not be correct.
+
 ```{r}
 # create one hour time bins and find max density
 
@@ -120,11 +122,83 @@ ggplot(MYThour, aes(x=hours, y=count, fill=as.factor(maximum))) +
 MYT[,time_hr:=hours(TIME2)]
 MYT[,DATE:=as.Date(as.character(DATE), format="%d/%m/%Y")]
 
-MYTcast1 <- dcast(MYT, time_hr + DATE ~., fun.aggregate = length)
-# MYTcast1 <- dcast(MYTcast1, time_hr ~., fun.aggregate = mean, value.var = ".")
+MYTcast1 <- dcast(MYT, time_hr + DATE + DIRECTION ~., fun.aggregate = length)
+setnames(MYTcast1,".","count")
+
+MYTcast1 <- dcast(MYTcast1, time_hr + DIRECTION ~., fun.aggregate = mean, value.var = "count")
+setnames(MYTcast1,".","count")
+
+MYTcast1[,maximum:=0]
+MYTcast1[count==max(MYTcast1[DIRECTION=="E",count]),maximum:=1]
+MYTcast1[count==max(MYTcast1[DIRECTION=="W",count]),maximum:=1]
+
+ggplot(MYTcast1, aes(x=time_hr, y=count, fill=as.factor(maximum))) +
+    geom_bar(stat="identity") +
+    facet_grid(DIRECTION ~.) +
+    labs(x="Time of day")
+
+```
+
+Inerestingly data is only for weekdays.
+
+```{r}
+
+MYTcast2 <- dcast(MYT, time_hr + DATE + DIRECTION ~., fun.aggregate = length)
+setnames(MYTcast2,".","count")
+
+# allocate to week or weekend 
+MYTcast2[, wkDay := weekdays(MYTcast2$DATE[1:5])]
+MYTcast2[, weekend := "Weekday"]
+MYTcast2[wkDay == "Saturday" | wkDay == "Sunday", weekend := "Weekend"]
+
+MYTcast2 <- dcast(MYTcast2, time_hr + DIRECTION + weekend ~., fun.aggregate = mean, value.var = "count")
+setnames(MYTcast2,".","count")
+
+# MYTcast1[,maximum:=0]
+# MYTcast1[count==max(MYTcast1[DIRECTION=="E",count]),maximum:=1]
+# MYTcast1[count==max(MYTcast1[DIRECTION=="W",count]),maximum:=1]
+
+ggplot(MYTcast2, aes(x=time_hr, y=count)) +
+    geom_bar(stat="identity") +
+    facet_grid(DIRECTION ~ weekend) +
+    labs(x="Time of day")
 
 
 ```
+
+Looks like I'm missing data from a few months.
+
+```{r fig.width=10, fig.height=10}
+
+MYT[, mnth := months(DATE) ]
+
+MYTcast3 <- dcast(MYT, time_hr + DATE + DIRECTION + mnth ~., fun.aggregate = length)
+setnames(MYTcast3,".","count")
+
+MYTcast3 <- dcast(MYTcast3, time_hr + DIRECTION + mnth ~., fun.aggregate = mean, value.var = "count")
+setnames(MYTcast3,".","count")
+MYTcast3[,mnth := factor(mnth, 
+                        levels=c("January", "February", "March", "April", "May", "June", 
+                                 "July", "August", "September", "October", "November", "December"),
+                        ordered = T)]
+
+
+ggplot(MYTcast3, aes(x=time_hr, y=count)) +
+    geom_bar(stat="identity") +
+    facet_grid( mnth ~ DIRECTION ) +
+    labs(x="Time of day")
+```
+
+```{r}
+
+ggplot(MYT, aes(x=DATE)) +
+    stat_density(geom="line", adjust = .4) +
+    facet_grid(DIRECTION ~.) +
+    labs(x="Speed (km/h)")
+
+
+```
+
 
 
 ## MCC Pedestrian Counters
