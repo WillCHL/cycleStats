@@ -46,28 +46,36 @@ MYTid <- 6415
 
 ```{r unzip, eval=TRUE}
 
-MYT <- data.table()
+extractSite <- function(yearVar, siteID, filePth) {
+    
 
-for (zipFile in list.files(file.path("./data","Bicycle_Volume_Speed_2018"), pattern=".zip$", full.names = T)) {
+    DT <- data.table()
     
-    # get list of csv files in the zip file
-    csvFiles <- as.data.table(unzip(zipFile,list=T))
-    
-    # if id is found in file names, extract just that file to working dir
-    if(sum(grepl(MYTid,csvFiles$Name))>0) {
+    for (zipFile in list.files(file.path("./data",paste0("Bicycle_Volume_Speed_",yearVar)), 
+                               pattern=".zip$", full.names = T)) {
         
-        csvFiles[grepl(MYTid,Name),Name]
-        MYT <- rbind(MYT,
-                     as.data.table(
-                         read.table(
-                             unzip(zipFile, files=csvFiles[grepl(MYTid,Name),Name]), 
-                             header=T, sep=",")))
+        # get list of csv files in the zip file
+        csvFiles <- as.data.table(unzip(zipFile,list=T))
+        
+        # if id is found in file names, extract just that file to working dir
+        if(sum(grepl(siteID,csvFiles$Name))>0) {
+            
+            csvFiles[grepl(siteID,Name),Name]
+            DT <- rbind(DT,
+                         as.data.table(
+                             read.table(
+                                 unzip(zipFile, files=csvFiles[grepl(siteID,Name),Name]), 
+                                 header=T, sep=",")))
+            
+        }
         
     }
     
+    return(DT)
 }
-
 # MYT[,AMPM:= ]
+
+MYT <- extractSite(2018,MYTid,"./data")
 
 ggplot(MYT, aes(x=SPEED)) +
     stat_density(geom="line") +
@@ -139,7 +147,7 @@ ggplot(MYTcast1, aes(x=time_hr, y=count, fill=as.factor(maximum))) +
 
 ```
 
-Inerestingly data is only for weekdays.
+
 
 ```{r}
 
@@ -147,9 +155,14 @@ MYTcast2 <- dcast(MYT, time_hr + DATE + DIRECTION ~., fun.aggregate = length)
 setnames(MYTcast2,".","count")
 
 # allocate to week or weekend 
-MYTcast2[, wkDay := weekdays(MYTcast2$DATE[1:5])]
+MYTcast2[, wkDay := weekdays(DATE)]
 MYTcast2[, weekend := "Weekday"]
 MYTcast2[wkDay == "Saturday" | wkDay == "Sunday", weekend := "Weekend"]
+
+# ggplot(MYTcast2, aes(x=time_hr, y=count)) +
+#     geom_bar(stat="identity") +
+#     facet_grid(wkDay ~ DIRECTION) +
+#     labs(x="Time of day")
 
 MYTcast2 <- dcast(MYTcast2, time_hr + DIRECTION + weekend ~., fun.aggregate = mean, value.var = "count")
 setnames(MYTcast2,".","count")
@@ -162,6 +175,7 @@ ggplot(MYTcast2, aes(x=time_hr, y=count)) +
     geom_bar(stat="identity") +
     facet_grid(DIRECTION ~ weekend) +
     labs(x="Time of day")
+
 
 
 ```
@@ -196,6 +210,11 @@ ggplot(MYT, aes(x=DATE)) +
     facet_grid(DIRECTION ~.) +
     labs(x="Speed (km/h)")
 
+ggplot(MYT, aes(x=DATE)) +
+    geom_bar() +
+    facet_grid(DIRECTION ~.) +
+    labs(x="Speed (km/h)")
+
 
 ```
 
@@ -212,7 +231,11 @@ pedSites <- fread("./data/Pedestrian_sensor_locations.csv")
 
 leaflet(pedSites) %>%
     addProviderTiles("CartoDB.Positron") %>%
-    addCircleMarkers(lng=~Longitude, lat=~Latitude, radius=4)
+    addCircleMarkers(lng=~Longitude, lat=~Latitude, radius=4,
+                     label=~`Sensor Description`) %>%
+    addCircleMarkers(data=pedSites[`Sensor Name`=="SouthB_T"], lng=~Longitude, lat=~Latitude, radius=4,
+                     label=~`Sensor Description`, 
+                     color="red", opacity=.9)
 
 ```
 
